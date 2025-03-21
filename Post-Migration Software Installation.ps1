@@ -8,7 +8,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-$logFolder = "C:\\Temp"
+$logFolder = "C:\Temp"
 $installerFolder = Join-Path $logFolder "Installers"
 if (-not (Test-Path $logFolder)) {
     New-Item -ItemType Directory -Path $logFolder | Out-Null
