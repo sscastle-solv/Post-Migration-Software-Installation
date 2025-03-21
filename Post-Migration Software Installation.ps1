@@ -8,7 +8,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     exit
 }
 
-$logFolder = "C:\Temp"
+$logFolder = "C:\\Temp"
 $installerFolder = Join-Path $logFolder "Installers"
 if (-not (Test-Path $logFolder)) {
     New-Item -ItemType Directory -Path $logFolder | Out-Null
@@ -70,12 +70,47 @@ function Cleanup-Installers {
     Write-Host "Cleaned up installer files. Log file remains at: $logFile"
 }
 
-function Log {
-    param([string]$Message, [ConsoleColor]$Color = "White")
+# Install function with working directory support
+function Install-App {
+    param (
+        [string]$Name,
+        [string]$FilePath,
+        [string]$Arguments,
+        [System.Windows.Controls.ProgressBar]$ProgressBar,
+        [int]$ProgressStep
+    )
+
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $Message"
-    Write-Host $entry -ForegroundColor $Color
-    Add-Content -Path $logFile -Value $entry
+    $logEntry = "$timestamp - Installing: $Name..."
+    Write-Host $logEntry -ForegroundColor Yellow
+    Add-Content -Path $logFile -Value $logEntry
+
+    $ProgressBar.Value += $ProgressStep
+
+    try {
+        $proc = Start-Process -FilePath $FilePath `
+                              -ArgumentList $Arguments `
+                              -WorkingDirectory (Split-Path $FilePath -Parent) `
+                              -WindowStyle Hidden `
+                              -Wait -PassThru -ErrorAction Stop
+
+        if ($proc.ExitCode -eq 0) {
+            $logEntry = "$timestamp - ✔️ $Name installed successfully."
+            Write-Host $logEntry -ForegroundColor Green
+            Add-Content -Path $logFile -Value $logEntry
+            return $true
+        } else {
+            $logEntry = "$timestamp - ❌ $Name failed with exit code $($proc.ExitCode)."
+            Write-Host $logEntry -ForegroundColor Red
+            Add-Content -Path $logFile -Value $logEntry
+            return $false
+        }
+    } catch {
+        $logEntry = "$timestamp - ❌ Error installing $Name: $_"
+        Write-Host $logEntry -ForegroundColor Red
+        Add-Content -Path $logFile -Value $logEntry
+        return $false
+    }
 }
 
 function Show-InstallSummary {
