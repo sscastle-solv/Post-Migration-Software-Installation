@@ -30,7 +30,6 @@ $optionalApps = @(
     @{ Name = "Commvault"; FolderPath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Commvault_WinX64"; FilePath = "Setup.exe"; Arguments = "/silent /norestart" }
 )
 
-# Copy installer files to C:\Temp\Installers and update FilePath
 foreach ($app in $defaultApps + $optionalApps) {
     if ($app.ContainsKey('MsiPath')) {
         $msiName = Split-Path $app.MsiPath -Leaf
@@ -64,49 +63,42 @@ foreach ($app in $defaultApps + $optionalApps) {
     }
 }
 
-# Cleanup function to remove installers after installation
 function Cleanup-Installers {
     Get-ChildItem -Path $installerFolder -Recurse -Force | Where-Object { $_.FullName -ne $logFile } | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
     Write-Host "Cleaned up installer files. Log file remains at: $logFile"
 }
 
-# Install function with working directory support
 function Install-App {
     param (
         [string]$Name,
         [string]$FilePath,
         [string]$Arguments,
         [System.Windows.Controls.ProgressBar]$ProgressBar,
-        [int]$ProgressStep
+        [int]$ProgressStep,
+        [System.Windows.Controls.TextBlock]$StatusText
     )
 
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $logEntry = "$timestamp - Installing: $Name..."
+    $StatusText.Text = "Installing: $Name"
+    $ProgressBar.Value += $ProgressStep
+    $logEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Installing: $Name..."
     Write-Host $logEntry -ForegroundColor Yellow
     Add-Content -Path $logFile -Value $logEntry
 
-    $ProgressBar.Value += $ProgressStep
-
     try {
-        $proc = Start-Process -FilePath $FilePath `
-                              -ArgumentList $Arguments `
-                              -WorkingDirectory (Split-Path $FilePath -Parent) `
-                              -WindowStyle Hidden `
-                              -Wait -PassThru -ErrorAction Stop
-
+        $proc = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory (Split-Path $FilePath -Parent) -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
         if ($proc.ExitCode -eq 0) {
-            $logEntry = "$timestamp - ✔️ $Name installed successfully."
+            $logEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - ✔️ $Name installed successfully."
             Write-Host $logEntry -ForegroundColor Green
             Add-Content -Path $logFile -Value $logEntry
             return $true
         } else {
-            $logEntry = "$timestamp - ❌ $Name failed with exit code $($proc.ExitCode)."
+            $logEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - ❌ $Name failed with exit code $($proc.ExitCode)."
             Write-Host $logEntry -ForegroundColor Red
             Add-Content -Path $logFile -Value $logEntry
             return $false
         }
     } catch {
-        $logEntry = "$timestamp - ❌ Error installing $Name: $_"
+        $logEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - ❌ Error installing $Name: $_"
         Write-Host $logEntry -ForegroundColor Red
         Add-Content -Path $logFile -Value $logEntry
         return $false
@@ -140,44 +132,8 @@ function Show-InstallSummary {
 
     $stackPanel.Children.Add($textBox)
     $stackPanel.Children.Add($viewLogButton)
-
     $summaryWindow.Content = $stackPanel
     $summaryWindow.ShowDialog() | Out-Null
-}
-
-function Install-App {
-    param (
-        [string]$Name,
-        [string]$FilePath,
-        [string]$Arguments,
-        [System.Windows.Controls.ProgressBar]$ProgressBar,
-        [int]$ProgressStep,
-        [System.Windows.Controls.TextBlock]$StatusText
-    )
-
-    $StatusText.Text = "Installing: $Name"
-    Log ("`nInstalling: {0}..." -f $Name) Yellow
-    $ProgressBar.Value += $ProgressStep
-
-    if (Test-Path $FilePath) {
-        try {
-            $workingDir = Split-Path -Parent $FilePath
-            $proc = Start-Process -FilePath $FilePath -ArgumentList $Arguments -WorkingDirectory $workingDir -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop
-            if ($proc.ExitCode -eq 0) {
-                Log ("✔️ {0} installed successfully." -f $Name) Green
-                return $true
-            } else {
-                Log ("❌ {0} failed with exit code {1}." -f $Name, $proc.ExitCode) Red
-                return $false
-            }
-        } catch {
-            Log ("❌ Error installing {0}: {1}" -f $Name, $_) Red
-            return $false
-        }
-    } else {
-        Log ("❌ File not found for {0}: {1}" -f $Name, $FilePath) Red
-        return $false
-    }
 }
 
 [xml]$xaml = @"
@@ -234,7 +190,8 @@ $installButton.Add_Click({
     $progressBar.Value = $progressBar.Maximum
     $elapsed = (Get-Date) - $startTime
     $statusText.Text = "Install complete. Elapsed time: $($elapsed.ToString("hh\:mm\:ss"))"
-    Log "\n✅ Elapsed time: $($elapsed.ToString("hh\:mm\:ss"))"
+
+    Add-Content -Path $logFile -Value "\n✅ Elapsed time: $($elapsed.ToString("hh\:mm\:ss"))"
 
     $summaryLines = @()
     foreach ($app in $installQueue) {
@@ -244,15 +201,17 @@ $installButton.Add_Click({
 
     Show-InstallSummary -SummaryLines $summaryLines
 
+    Cleanup-Installers
+
     if ($allSuccess -and -not $skipRebootBox.IsChecked) {
-        Log "\n✅ All apps installed successfully. Rebooting in 10 seconds..." Cyan
+        Add-Content -Path $logFile -Value "\n✅ All apps installed successfully. Rebooting in 10 seconds..."
         Start-Sleep -Seconds 10
         Restart-Computer -Force
     } elseif ($allSuccess) {
-        Log "\n✅ All apps installed successfully. Reboot skipped per user choice." Cyan
+        Add-Content -Path $logFile -Value "\n✅ All apps installed successfully. Reboot skipped per user choice."
     } else {
         [System.Windows.MessageBox]::Show("One or more applications failed. Check the log file in C:\\Temp.", "Install Error", "OK", "Error")
-        Log "\n⚠️ One or more apps failed. Reboot aborted." Red
+        Add-Content -Path $logFile -Value "\n⚠️ One or more apps failed. Reboot aborted."
     }
 })
 
