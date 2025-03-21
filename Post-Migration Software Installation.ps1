@@ -21,21 +21,40 @@ $logFile = Join-Path $logFolder "AppInstall_Log_$(Get-Date -Format 'yyyyMMdd_HHm
 
 $defaultApps = @(
     @{ Name = "Crowdstrike"; FilePath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Crowdstrike\WindowsSensor.exe"; Arguments = "/install /quiet /norestart CID=9785FF0D817B49B3B4B0D584B2D8BF23-B7" },
-    @{ Name = "Splunk"; FilePath = "\\awsuse2file01.3mhealth.com\Installs\Splunk\splunkforwarder-9.2.1-78803f08aabb-x64-release.msi"; Arguments = '/i "\\awsuse2file01.3mhealth.com\Installs\Splunk\splunkforwarder-9.2.1-78803f08aabb-x64-release.msi" /qn /norestart AGREETOLICENSE=Yes RECEIVING_INDEXER="3mhealth.splunkcloud.com:9997" DEPLOYMENT_SERVER="splunkcloudprufds.3mhealth.com:8089" SPLUNKUSERNAME="splunkadmin" SPLUNKPASSWORD="qfZB-YwWTpafQP!X!-9BJFZ3jvshEFYg"' },
+    @{ Name = "Splunk"; FilePath = "msiexec.exe"; MsiPath = "\\awsuse2file01.3mhealth.com\Installs\Splunk\splunkforwarder-9.2.1-78803f08aabb-x64-release.msi"; Arguments = "" },
     @{ Name = "Qualys"; FilePath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Qualys\QualysCloudAgent.exe"; Arguments = "/quiet CustomerId={6ee5d733-9e25-7597-8254-c36cfcfb4bed} ActivationId={a8e88c2c-9361-406c-8fc9-cefd8cdabc40} WebServiceUri=https://qagpublic.qg2.apps.qualys.com/CloudAgent/" },
     @{ Name = "SCCM"; FilePath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\SCCM Client\Client\ccmsetup.exe"; Arguments = "/quiet /norestart /mp:https://MECMPRDPR3SEC1.3mhealth.com /skipprereq:silverlight.exe /forceinstall SMSSITECODE=PRH SMSMP=MECMPRDPR3SEC1.3mhealth.com FSP=MECMPRDPR3.3mhealth.com /UsePKICert /NoCRLCheck" }
 )
 
 $optionalApps = @(
-    @{ Name = "Commvault"; FilePath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Commvault_WinX64\Setup.exe"; Arguments = "/silent /norestart" }
+    @{ Name = "Commvault"; FolderPath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Commvault_WinX64"; FilePath = "Setup.exe"; Arguments = "/silent /norestart" }
 )
 
 # Copy installer files to C:\Temp\Installers and update FilePath
 foreach ($app in $defaultApps + $optionalApps) {
-    if ($app.FilePath -ne "msiexec.exe" -and $app.FilePath -like "\\*") {
+    if ($app.ContainsKey('MsiPath')) {
+        $msiName = Split-Path $app.MsiPath -Leaf
+        $localMsi = Join-Path $installerFolder $msiName
+        try {
+            Copy-Item -Path $app.MsiPath -Destination $localMsi -Force
+            $app.Arguments = "/i \"$localMsi\" /qn /norestart AGREETOLICENSE=Yes RECEIVING_INDEXER=\"3mhealth.splunkcloud.com:9997\" DEPLOYMENT_SERVER=\"splunkcloudprufds.3mhealth.com:8089\" SPLUNKUSERNAME=\"splunkadmin\" SPLUNKPASSWORD=\"qfZB-YwWTpafQP!X!-9BJFZ3jvshEFYg\""
+        } catch {
+            Write-Host "Failed to copy MSI for $($app.Name): $_" -ForegroundColor Red
+        }
+    }
+    elseif ($app.ContainsKey('FolderPath')) {
+        $folderName = Split-Path $app.FolderPath -Leaf
+        $localFolder = Join-Path $installerFolder $folderName
+        try {
+            Copy-Item -Path $app.FolderPath -Destination $localFolder -Recurse -Force
+            $app.FilePath = Join-Path $localFolder $app.FilePath
+        } catch {
+            Write-Host "Failed to copy folder for $($app.Name): $_" -ForegroundColor Red
+        }
+    }
+    elseif ($app.FilePath -ne "msiexec.exe" -and $app.FilePath -like "\\*") {
         $fileName = Split-Path $app.FilePath -Leaf
         $localPath = Join-Path $installerFolder $fileName
-
         try {
             Copy-Item -Path $app.FilePath -Destination $localPath -Recurse -Force
             $app.FilePath = $localPath
