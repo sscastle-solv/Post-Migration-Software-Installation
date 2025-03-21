@@ -9,8 +9,12 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $logFolder = "C:\\Temp"
+$installerFolder = Join-Path $logFolder "Installers"
 if (-not (Test-Path $logFolder)) {
     New-Item -ItemType Directory -Path $logFolder | Out-Null
+}
+if (-not (Test-Path $installerFolder)) {
+    New-Item -ItemType Directory -Path $installerFolder | Out-Null
 }
 
 $logFile = Join-Path $logFolder "AppInstall_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
@@ -25,6 +29,27 @@ $defaultApps = @(
 $optionalApps = @(
     @{ Name = "Commvault"; FilePath = "\\awsuse2file01.3mhealth.com\bedrock\Installs\Agents\Commvault_WinX64\Setup.exe"; Arguments = "/silent /norestart" }
 )
+
+# Copy installer files to C:\Temp\Installers and update FilePath
+foreach ($app in $defaultApps + $optionalApps) {
+    if ($app.FilePath -ne "msiexec.exe" -and $app.FilePath -like "\\*") {
+        $fileName = Split-Path $app.FilePath -Leaf
+        $localPath = Join-Path $installerFolder $fileName
+
+        try {
+            Copy-Item -Path $app.FilePath -Destination $localPath -Recurse -Force
+            $app.FilePath = $localPath
+        } catch {
+            Write-Host "Failed to copy $($app.Name) to local folder: $_" -ForegroundColor Red
+        }
+    }
+}
+
+# Cleanup function to remove installers after installation
+function Cleanup-Installers {
+    Get-ChildItem -Path $installerFolder -Recurse -Force | Where-Object { $_.FullName -ne $logFile } | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+    Write-Host "Cleaned up installer files. Log file remains at: $logFile"
+}
 
 function Log {
     param([string]$Message, [ConsoleColor]$Color = "White")
